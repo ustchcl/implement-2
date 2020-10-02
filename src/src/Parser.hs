@@ -14,6 +14,7 @@ type Token = (Int, String) -- A token is never empty, Int 是行号
 -- 词法分析
 clex :: Int -> String -> [Token]
 clex _ [] = []
+clex n str@(c:cs) | c == '(' = (clex n $ takeWhile (/= ')') cs) ++ (clex n $ drop 1 (dropWhile (/= ')') cs))
 clex n (c:cs) | isWhiteSpace c = clex n cs
 clex n (c:cs) | not $ isNotEnter c = clex (n+1) cs
 clex n (c:cs) | isAlpha c = (n, varTok) : clex n restCs
@@ -46,8 +47,11 @@ pSc = pThen4 mkSc pVar (pZeroOrMore pVar) (pLit "=") pExpr
 mkSc :: Name -> [Name] -> String -> CoreExpr -> CoreScDefn
 mkSc name vars _ expr = (name, vars, expr)
 
-pExpr :: Parser CoreExpr
-pExpr = pEVar <~> pENum <~> pEConstr <~> pELet <~> pECase <~> pELam
+pAexpr :: Parser CoreExpr
+pAexpr = pEVar <~> pENum <~> pEConstr <~> pParenthesised
+
+pParenthesised :: Parser CoreExpr
+pParenthesised = pThen3 (\_ x _ -> x) (pLit "(") pExpr (pLit ")")
 
 pEVar :: Parser CoreExpr 
 pEVar = pApply pVar EVar
@@ -56,7 +60,12 @@ pENum :: Parser CoreExpr
 pENum = pApply pNum ENum
 
 pEConstr :: Parser CoreExpr 
-pEConstr = pThen EConstr pNum pNum
+pEConstr = pThen3 mkCon pHead pValue pTail
+  where
+    mkCon _ (x, y) _ = EConstr x y
+    pHead = pThen (++) (pLit "Pack") (pLit "{")
+    pTail = pLit "}"
+    pValue = pThen3 (\x _ y -> (x, y)) pNum (pLit ",") pNum
 
 mkLetSub :: Name -> String -> CoreExpr -> (Name, CoreExpr)
 mkLetSub name _ expr = (name, expr)
@@ -77,7 +86,7 @@ pAlter :: Parser CoreAlt
 pAlter = pThen (mkAlter []) pPattern pArrow
   where
     pPattern = pThen3 (\_ x _ -> x) (pLit "<") pNum (pLit ">")
-    pArrow = pThen3 (\_ _ x -> x) (pLit "-") (pLit ">") pExpr
+    pArrow = pThen (const id) (pLit "->") pExpr
 
 pECase :: Parser CoreExpr
 pECase = pThen ECase pCaseOf $ pOneOrMoreWithSep pAlter (pLit ";")
@@ -87,11 +96,49 @@ pELam :: Parser CoreExpr
 pELam = pThen ELam pSlashVars pArrow
   where
     pSlashVars = pThen (const id) (pLit "\\") (pOneOrMore pVar)
-    pArrow = pThen3 (\_ _ x -> x) (pLit "-") (pLit ">") pExpr
+    pArrow = pThen (const id) (pLit "->") pExpr
 
+pEAp :: Parser CoreExpr
+pEAp = pOneOrMore pAexpr `pApply` mkApChain
 
+mkApChain :: [CoreExpr] -> CoreExpr
+mkApChain (e1: []) = e1
+mkApChain (e1:e2:[]) = EAp e1 e2
+mkApChain (e:es) = EAp e $ mkApChain es
+mkApChain err = error $ show err
 
+data ParticalExpr = NoOp | FoundOp Name CoreExpr
 
+assembleOp :: CoreExpr -> ParticalExpr -> CoreExpr
+assembleOp e1 NoOp = e1
+assembleOp e1 (FoundOp op e2) = EAp (EAp (EVar op) e1) e2
+
+attach :: Name -> Parser CoreExpr -> Parser ParticalExpr
+attach op p = pThen FoundOp (pLit op) p <~> pEmpty NoOp
+
+attachOneOfArr :: [Name] -> Parser CoreExpr -> Parser ParticalExpr
+attachOneOfArr ops p = pThen FoundOp (pSat $ flip elem ops) p <~> pEmpty NoOp
+
+pExpr :: Parser CoreExpr
+pExpr = pELet <~> pECase <~> pELam <~> pExpr1
+
+pExpr1 :: Parser CoreExpr
+pExpr1 = pThen assembleOp pExpr2 $ attach "|" pExpr1
+
+pExpr2 :: Parser CoreExpr
+pExpr2 = pThen assembleOp pExpr3 $ attach "&" pExpr2
+
+pExpr3 :: Parser CoreExpr
+pExpr3 = pThen assembleOp pExpr4 $ attachOneOfArr relOps pExpr4
+
+pExpr4 :: Parser CoreExpr
+pExpr4 = (pThen assembleOp pExpr5 $ attach "+" pExpr4) <~> (pThen assembleOp pExpr5 $ attach "-" pExpr5)
+
+pExpr5 :: Parser CoreExpr
+pExpr5 = (pThen assembleOp pExpr6 $ attach "*" pExpr5) <~> (pThen assembleOp pExpr6 $ attach "/" pExpr6)
+
+pExpr6 :: Parser CoreExpr
+pExpr6 = pEAp
 
 parse :: String -> CoreProgram
 parse = syntax . (clex 0)
@@ -169,6 +216,9 @@ pOneOrMoreWithSep pa sep = pThen (:) pa (pZeroOrMore $ pThen (const id) sep pa)
 -- constants
 twoCharsOps :: [String]
 twoCharsOps = ["==", "~=", ">=", "<=", "->"]
+
+relOps :: [String]
+relOps = ["==", "~=", ">=", "<=", ">", ">", "<"]
 
 keywords :: [String]
 keywords = ["let", "letrec", "case", "in", "of", "Pack"]

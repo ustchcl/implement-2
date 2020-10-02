@@ -66,11 +66,11 @@ module Printer where
   pprExpr :: CoreExpr -> Iseq
   pprExpr (ENum n) = iStr $ show n
   pprExpr (EVar v) =  iStr v
-  pprExpr (EConstr i j) = iStr $ "data" ++ show i ++ " " ++ show j
+  pprExpr (EConstr i j) = iStr $ "Pack{" ++ show i ++ ", " ++ show j ++ "}"
   pprExpr (EAp (EAp (EVar op) e1) e2) = iConcat [
-      pprExpr e1, iStr op, pprExpr e2
+      iStr "(", pprExpr e1, iStr op, pprExpr e2, iStr ")"
     ]
-  pprExpr (EAp e1 e2) = (pprExpr e1) <+> (iStr " ") <+> (pprExpr e2)
+  pprExpr (EAp e1 e2) = (iStr "(") <+> (pprExpr e1) <+> (iStr " ") <+> (pprExpr e2) <+> (iStr ")")
 
   pprExpr (ELet isrec defns expr) = iConcat [ 
       iStr keyword, iNewline,
@@ -100,7 +100,7 @@ module Printer where
   pprDefn (name, expr) = iConcat [ iStr $ name ++ " = ", iIndent (pprExpr expr) ]
 
   pprAlter :: Alter Name -> Iseq
-  pprAlter (_, _, expr) = pprExpr expr
+  pprAlter (pattern, _, expr) = (iStr $ "<" ++ show pattern ++ "> -> ") <+> pprExpr expr <+> iNewline
 
   pprProgram :: CoreProgram -> Iseq
   pprProgram prog = iConcat $ pprScDefn <$> prog

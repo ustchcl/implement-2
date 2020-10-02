@@ -24,6 +24,8 @@ pGreeting = pThen (,)  pHelloOrGoodbye pVar
 
 simpleProgram :: [String]
 simpleProgram = [
+        " g = Pack{1,2};",
+        " h = f (f x) ;",
         " f = 3 ;",
         " g x y = let z = x in z ;",
         " h x = case (let y = x in y) of",
@@ -31,7 +33,9 @@ simpleProgram = [
         " <2> -> 5"
     ]
 
-program_1 = "f = 3; h x = case (let y = x in y) of <1> -> 2 ; <2> -> 5"
+complexProgram = "f x y = case x of <1> -> case y of <1> -> 1; <2> -> 2"
+
+program_1 = "h x = case (let y = x in y) of <1> -> 2 ; <2> -> 5"
 
 program :: [Char]
 program = foldl (\sum str -> sum ++ "\n" ++ str) [] simpleProgram
@@ -44,4 +48,4 @@ main = do
     -- can you work out why the parsing cost in the previous example rise so fast
     putStrLn $ show $ length $ pOneOrMore (pLit "x") $ (\x -> (1, x)) <$> (take 6 (repeat "x"))
     putStrLn $ program
-    putStrLn $ show $ syntax (clex 0 program_1)
+    putStrLn $ iDisplay $ pprProgram $ syntax (clex 0 program)
