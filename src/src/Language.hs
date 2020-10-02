@@ -19,7 +19,8 @@ module Language where
         | EAp (Expr a)  (Expr a)                -- 函数应用
         | ELet IsRec [(a, Expr a)] (Expr a)     -- let 定义 IsRec 是否能递归定义 [(a, Expr a)] 定义 Expr
         | ECase (Expr a) [Alter a]              -- case 表达式
-        | ELam [a] (Expr a)                     -- lambda 表达式
+        | ELam [a] (Expr a)  
+        deriving (Show)                   -- lambda 表达式
 
 
     isAtomicExpr :: Expr a -> Bool
