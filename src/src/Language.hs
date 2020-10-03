@@ -52,4 +52,6 @@ module Language where
         ("compose", ["f", "g", "x"], EAp (EVar "f") (EAp (EVar "g") (EVar "x"))),
         ("twice", ["f"], EAp (EAp (EVar "compose") (EVar "f")) (EVar "f"))]
 
- 
+    
+    extraPreludeDefs :: CoreProgram
+    extraPreludeDefs = []

@@ -4,6 +4,8 @@ import Language
 
 import Parser
 
+import Template
+
 elet :: CoreProgram
 elet = [
     ("elet", [], ELet False letexpr expr)
@@ -37,15 +39,21 @@ complexProgram = "f x y = case x of <1> -> case y of <1> -> 1; <2> -> 2"
 
 program_1 = "h x = case (let y = x in y) of <1> -> 2 ; <2> -> 5"
 
+program_2 = "main = S K K 3"
+
 program :: [Char]
 program = foldl (\sum str -> sum ++ "\n" ++ str) [] simpleProgram
 
 main :: IO ()
 main = do 
-    putStrLn $ pprint elet
-    putStrLn $ show $ splitBy 'a' "abscsdsadsad"
-    putStrLn $ show $ pGreeting [(1, "goodbye"), (1, "James"), (1, "!")]
-    -- can you work out why the parsing cost in the previous example rise so fast
-    putStrLn $ show $ length $ pOneOrMore (pLit "x") $ (\x -> (1, x)) <$> (take 6 (repeat "x"))
-    putStrLn $ program
-    putStrLn $ iDisplay $ pprProgram $ syntax (clex 0 program)
+    putStrLn "Hello ~"
+    -- putStrLn $ pprint elet
+    -- putStrLn $ show $ splitBy 'a' "abscsdsadsad"
+    -- putStrLn $ show $ pGreeting [(1, "goodbye"), (1, "James"), (1, "!")]
+    -- -- can you work out why the parsing cost in the previous example rise so fast
+    -- putStrLn $ show $ length $ pOneOrMore (pLit "x") $ (\x -> (1, x)) <$> (take 6 (repeat "x"))
+    -- putStrLn $ program
+    putStrLn $ pprint $ parse program_2
+
+    -- putStrLn $ show $ evalMult (2, 3, 0, 0)
+    -- putStrLn $ runProg program_2 
