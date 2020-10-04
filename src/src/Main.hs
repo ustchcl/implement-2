@@ -69,7 +69,9 @@ programTwice = program
 
 programNeg = program 
     [
-        "main = negate (I 3)"
+        "y = 3;",
+        "x = 6;",
+        "main = x * y"
     ]
 
 program :: [String] -> String

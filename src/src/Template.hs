@@ -228,7 +228,10 @@ indStep (stack, dump, heap, globals, stats) a1 = (a1 : tl stack, dump, heap, glo
 
 primStep :: TiState -> Primitive -> TiState
 primStep state Neg = primNeg state
-primStep _ _= error ""
+primStep state Add = primArith state (+)
+primStep state Sub = primArith state (-)
+primStep state Mul = primArith state (*)
+primStep state Div = primArith state div
 
 primNeg :: TiState -> TiState
 primNeg (stack, dump, heap, globals, stats) = 
@@ -239,6 +242,18 @@ primNeg (stack, dump, heap, globals, stats) =
         (stack', dump', heap') = case arg of
             NNum n -> (drop 1 stack, dump, hUpdate heap (hd $ drop 1 stack) $ NNum (-n)) -- rule 2.5
             _ -> ([arg_addr], drop 1 stack : dump, heap)
+
+
+primArith :: TiState -> (Int -> Int -> Int) -> TiState
+primArith (stack, dump, heap, globals, stats) arith = 
+    (stack', dump', heap', globals, stats)
+    where
+        arg_addrs = getargs heap stack
+        args = hLookup heap <$> arg_addrs
+        (stack', dump', heap') = case args of
+            [NNum n1, NNum n2] -> (drop 2 stack, dump, hUpdate heap (hd $ drop 2 stack) (NNum (arith n1 n2)))
+            [NNum n1, _] -> (tl arg_addrs, drop 2 stack : dump, heap)
+            _ -> (take 1 arg_addrs, stack : dump, heap)
 
 -- show
 showResults :: [TiState] -> String
