@@ -67,7 +67,7 @@ module Printer where
   pprExpr (ENum n) = iStr $ show n
   pprExpr (EVar v) =  iStr v
   pprExpr (EConstr i j) = iStr $ "Pack{" ++ show i ++ ", " ++ show j ++ "}"
-  pprExpr (EAp (EAp (EVar op) e1) e2) = iConcat [
+  pprExpr (EAp (EAp (EVar op) e1) e2) | op `elem` ops = iConcat [
       iStr "(", pprExpr e1, iStr op, pprExpr e2, iStr ")"
     ]
   pprExpr (EAp e1 e2) = (iStr "(") <+> (pprExpr e1) <+> (iStr " ") <+> (pprExpr e2) <+> (iStr ")")
@@ -139,3 +139,11 @@ module Printer where
       taked = takeWhile notA list
       rest = drop 1 $ dropWhile notA list
       splitedRest = splitBy a rest
+
+  ops :: [String]
+  ops = [
+    "+", "-", "*", "/",
+    "~=", "==", ">=", "<=", "->",
+    ">", "<",
+    "&", "|"
+    ]

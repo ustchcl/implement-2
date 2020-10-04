@@ -14,7 +14,6 @@ type Token = (Int, String) -- A token is never empty, Int 是行号
 -- 词法分析
 clex :: Int -> String -> [Token]
 clex _ [] = []
-clex n str@(c:cs) | c == '(' = (clex n $ takeWhile (/= ')') cs) ++ (clex n $ drop 1 (dropWhile (/= ')') cs))
 clex n (c:cs) | isWhiteSpace c = clex n cs
 clex n (c:cs) | not $ isNotEnter c = clex (n+1) cs
 clex n (c:cs) | isAlpha c = (n, varTok) : clex n restCs
@@ -29,6 +28,8 @@ clex n (c1:c2:cs) | [c1, c2] == "||" = clex n $ dropWhile (/= '\n') cs -- excers
 clex n (c1:c2:cs) | [c1, c2] `elem` twoCharsOps = (n, [c1, c2]) : clex n cs -- excersice 1.10 双字符操作符
 
 clex n (c:cs) = (n, [c]) : clex n cs
+
+
 
 -- 语义分析
 syntax :: [Token] -> CoreProgram 
@@ -104,7 +105,7 @@ pEAp = pOneOrMore pAexpr `pApply` mkApChain
 mkApChain :: [CoreExpr] -> CoreExpr
 mkApChain (e1: []) = e1
 mkApChain (e1:e2:[]) = EAp e1 e2
-mkApChain (e:es) = EAp e $ mkApChain es
+mkApChain (e1:e2:es) = mkApChain ((EAp e1 e2) : es)
 mkApChain err = error $ show err
 
 data ParticalExpr = NoOp | FoundOp Name CoreExpr

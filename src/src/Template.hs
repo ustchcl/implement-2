@@ -131,12 +131,14 @@ apStep (stack, dump, heap, globals, stats) a1 a2 =
 
 scStep :: TiState -> Name -> [Name] -> CoreExpr -> TiState
 scStep (stack, dump, heap, globals, stats) sc_name arg_names body
-    = (new_stack, dump, new_heap, globals, stats)
-        where
+    = if length arg_names >= length stack then error $ sc_name ++ " applied to too few values."
+        else 
+            let
             new_stack = result_addr : (drop (length arg_names + 1) stack)
             (new_heap, result_addr) = instantiate body heap env 
             env = arg_bindings ++ globals
             arg_bindings = zip arg_names (getargs heap stack)
+            in (new_stack, dump, new_heap, globals, stats)
 
 getargs :: TiHeap -> TiStack -> [Addr]
 getargs heap (sc:stack)
@@ -152,21 +154,45 @@ instantiate (EAp e1 e2) heap env = hAlloc heap'' (NAp a1 a2)
         (heap'', a2) = instantiate e2 heap' env
 instantiate (EVar v) heap env = (heap, aLookup env v $ error ("Undefined name " ++ show v))
 instantiate (EConstr tag arity) heap env = error ""
-instantiate (ELet isrec defs body) heap env = error "" 
+instantiate (ELet isrec defs body) heap env = instantiateLet heap env isrec defs body
 instantiate (ECase e alts) heap env = error "Can't instantiate case expressions"
 
+instantiateLet ::TiHeap -> ASSOC Name Addr -> Bool -> [(Name, CoreExpr)] -> CoreExpr -> (TiHeap, Addr)
+instantiateLet heap env False defs expr =  -- let
+    instantiate expr heap' env'
+    where
+        instantiateDef env heap (name, expr) = 
+            let (heap', addr) = instantiate expr heap env
+            in (heap', (name, addr))
+        (heap', assoc) = mapAccuml (instantiateDef env) heap defs
+        env' = assoc ++ env
+instantiateLet heap env True defs expr =   -- letrec
+    instantiate expr heap' env'
+    where
+        instantiateDefRec heap (name, expr) = 
+            let (heap', addr) = instantiate expr heap env'
+            in (heap', (name, addr))
+        (heap', assoc) = mapAccuml instantiateDefRec heap defs
+        env' = assoc ++ env
+        
 -- show
 showResults :: [TiState] -> String
 showResults states = iDisplay (iConcat [ iLayn $ showState <$> states, showStats (last states)])
 
 showState :: TiState -> Iseq
-showState (stack, dump, heap, globals, stats) = iConcat [showStack heap stack, iNewline]
+showState (stack, dump, heap, globals, stats) = iConcat [showStack heap stack, iNewline, showHeap heap, iNewline]
 
 showStack :: TiHeap -> TiStack -> Iseq 
 showStack heap stack = iConcat [iStr "Stk [", iIndent (iInterleave iNewline (map show_stack_item stack)), iStr " ]"]
                         where 
                         show_stack_item addr = iConcat [showFWAddr addr, iStr ": ", showStkNode heap (hLookup heap addr)]
     
+showHeap :: TiHeap -> Iseq
+showHeap heap = iConcat [
+        iStr "Heap [", iIndent (iInterleave iNewline (show_heap_item <$> contentHeap heap)), iStr " ]"]
+        where
+            show_heap_item (addr, node) = iConcat $ iStr <$> [ showaddr addr, " " , show node]
+
 showStkNode :: TiHeap -> Node -> Iseq
 showStkNode heap (NAp fun_addr arg_addr) = iConcat [ iStr "NAp ", showFWAddr fun_addr, iStr " (", showNode (hLookup heap arg_addr), iStr ")"]
 showStkNode heap node = showNode node 
