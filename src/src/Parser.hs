@@ -103,9 +103,9 @@ pEAp :: Parser CoreExpr
 pEAp = pOneOrMore pAexpr `pApply` mkApChain
 
 mkApChain :: [CoreExpr] -> CoreExpr
-mkApChain (e1: []) = e1
-mkApChain (e1:e2:[]) = EAp e1 e2
-mkApChain (e1:e2:es) = mkApChain ((EAp e1 e2) : es)
+mkApChain [e1] = e1
+mkApChain [e1, e2] = EAp e1 e2
+mkApChain (e1:e2:es) = mkApChain (EAp e1 e2 : es)
 mkApChain err = error $ show err
 
 data ParticalExpr = NoOp | FoundOp Name CoreExpr
@@ -142,15 +142,15 @@ pExpr6 :: Parser CoreExpr
 pExpr6 = pEAp
 
 parse :: String -> CoreProgram
-parse = syntax . (clex 0)
+parse = syntax . clex 0
 
 -- parser 
 type Parser a = [Token] -> [(a, [Token])]
 
-data MyParser a = P (Parser a)
+newtype MyParser a = P (Parser a)
 
 instance Functor MyParser where
-  fmap f (P g) = P $ \toks -> (\(a, rest) -> (f a, rest)) <$> (g toks)
+  fmap f (P g) = P $ fmap (\ (a, rest) -> (f a, rest)) . g -- \toks -> (\(a, rest) -> (f a, rest)) <$> g toks
 
 instance Applicative MyParser where
   pure a = P $ \toks -> [(a, toks)]
@@ -165,7 +165,7 @@ instance Monad MyParser where
   P p >>= f = P $ \toks -> 
     let 
       parsedA = p toks 
-      ff (a, toks') = let P pb = (f a) in pb toks'
+      ff (a, toks') = let P pb = f a in pb toks'
     in parsedA >>= ff
 
 
@@ -174,7 +174,7 @@ pEmpty a toks = [(a, toks)]
 
 pSat :: (String -> Bool) -> Parser String
 pSat _ [] = []
-pSat f ((_, tok): toks) = if f tok then [(tok, toks)] else []
+pSat f ((_, tok): toks) = [(tok, toks) | f tok] -- if f tok then [(tok, toks)] else []
 
 pLit :: String -> Parser String
 pLit str = pSat (== str)
@@ -186,7 +186,7 @@ pNum :: Parser Int
 pNum = pSat isNum `pApply` read
 
 pAlt :: Parser a -> Parser a -> Parser a
-pAlt p1 p2 toks = (p1 toks) ++ (p2 toks)
+pAlt p1 p2 toks = p1 toks ++ p2 toks
 
 (<~>) :: Parser a -> Parser a -> Parser a
 (<~>) = pAlt
@@ -200,7 +200,7 @@ pThen3 :: (a -> b -> c -> d) -> Parser a -> Parser b -> Parser c -> Parser d
 pThen3 f pa pb pc = let P pd = liftA3 f (P pa) (P pb) (P pc) in pd
 
 pThen4 :: (a -> b -> c -> d -> e) -> Parser a -> Parser b -> Parser c -> Parser d -> Parser e
-pThen4 f pa pb pc pd = let P pe = f <$> (P pa) <*> (P pb) <*> (P pc) <*> (P pd) in pe
+pThen4 f pa pb pc pd = let P pe = f <$> P pa <*> P pb <*> P pc <*> P pd in pe
 
 pZeroOrMore :: Parser a -> Parser [a]
 pZeroOrMore pa = pOneOrMore pa <~> pEmpty []
@@ -235,13 +235,13 @@ isIdChar :: Char -> Bool
 isIdChar c = isAlpha c || isDigit c || c == '_'
 
 isDigit :: Char -> Bool
-isDigit = (flip elem) ['0'..'9']
+isDigit = flip elem ['0'..'9']
 
 isAlpha :: Char -> Bool
-isAlpha = (flip elem) (['a'..'z'] ++ ['A'..'Z'])
+isAlpha = flip elem (['a'..'z'] ++ ['A'..'Z'])
 
 isVariable :: String -> Bool
-isVariable tok@(c:cs) = (not $ tok `elem` keywords) && isAlpha c && all isIdChar cs
+isVariable tok@(c:cs) = tok `notElem` keywords && isAlpha c && all isIdChar cs
 
 isNum :: String -> Bool 
 isNum [] = False

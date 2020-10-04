@@ -57,14 +57,18 @@ type TiState = (TiStack, TiDump, TiHeap, TiGlobals, TiStats)
 type TiStack = [Addr]
 -- type Addr = Int
 
-data TiDump = DummyTiDump
+type TiDump = [TiStack]
 
 type TiHeap = Heap Node
 data Node
     = NAp Addr Addr
     | NSupercomb Name [Name] CoreExpr
     | NNum Int
+    | NInd Addr
+    | NPrim Name Primitive
     deriving (Show)
+
+data Primitive = Neg | Add | Sub | Mul | Div deriving (Show)
 
 type TiGlobals = ASSOC Name Addr
 
@@ -85,13 +89,31 @@ compile program =
         initial_stack = [address_of_main]
 
 buildInitialHeap :: [CoreScDefn] -> (TiHeap, TiGlobals)
-buildInitialHeap = mapAccuml allocateSc hInitial
+buildInitialHeap sc_defs = 
+    let 
+        (heap', sc_addrs) = mapAccuml allocateSc hInitial sc_defs
+        (heap'', prim_addrs) = mapAccuml allocatePrim heap' primitives
+    in (heap'', sc_addrs ++ prim_addrs)
 
 allocateSc :: TiHeap -> CoreScDefn -> (TiHeap, (Name, Addr))
 allocateSc heap (name, args, body)
     = (heap', (name, addr))
         where
             (heap', addr) = hAlloc heap (NSupercomb name args body)
+
+primitives :: ASSOC Name Primitive
+primitives = 
+    [ ("negate", Neg)
+    , ("+", Add)
+    , ("-", Sub)
+    , ("*", Mul)
+    , ("/", Div)
+    ]
+
+allocatePrim :: TiHeap -> (Name, Primitive) -> (TiHeap, (Name, Addr))
+allocatePrim heap (name, prim)
+    = let (heap', addr) = hAlloc heap (NPrim name prim)
+    in (heap', (name, addr))
 
 -- 求值
 eval :: TiState -> [TiState]
@@ -106,7 +128,7 @@ doAdmin :: TiState -> TiState
 doAdmin state@(stack, dump, heap, globals, stats) = applyToStats tiStatIncSteps state 
 
 tiFinal :: TiState -> Bool
-tiFinal ([result_addr], _, heap, _, stats) = isDataNode $ hLookup heap result_addr
+tiFinal ([result_addr], dump, heap, _, stats) = null dump && isDataNode (hLookup heap result_addr)
 tiFinal ([], _, _, _, _) = error "what is fucking going on ? Empty Stack!"
 tiFinal _ = False
 
@@ -121,23 +143,31 @@ dispatch :: TiState -> Node -> TiState
 dispatch state (NNum n) = numStep state n
 dispatch state (NAp a1 a2) = apStep state a1 a2
 dispatch state (NSupercomb sc args body) = scStep state sc args body
+dispatch state (NInd a1) = indStep state a1
+dispatch state (NPrim name prim) = primStep state prim
 
 numStep :: TiState -> Int -> TiState
-numStep _ _ = error "Number applied as a function"
+numStep ([_], [], heap, globals, stats) _ = error "cannot apply NNum as NAp"
+numStep ([_], s:d, heap, globals, stats) _ = (s, d, heap, globals, stats)
+numStep state _ =  error $ showResults [state]
 
 apStep :: TiState -> Addr -> Addr -> TiState 
 apStep (stack, dump, heap, globals, stats) a1 a2 =
-    (a1:stack, dump, heap, globals, stats)
+    let a2_node = hLookup heap a2
+    in case a2_node of
+        NInd a3 -> (stack, dump, hUpdate heap (hd stack) (NAp a1 a3), globals, stats)
+        _ -> (a1: stack, dump, heap, globals, stats)
 
 scStep :: TiState -> Name -> [Name] -> CoreExpr -> TiState
 scStep (stack, dump, heap, globals, stats) sc_name arg_names body
     = if length arg_names >= length stack then error $ sc_name ++ " applied to too few values."
         else 
             let
-            new_stack = result_addr : (drop (length arg_names + 1) stack)
-            (new_heap, result_addr) = instantiate body heap env 
+            new_stack = drop (length arg_names) stack
+            new_heap = instantiateWithUpdate body (hd $ drop (length arg_names) stack) heap env 
             env = arg_bindings ++ globals
             arg_bindings = zip arg_names (getargs heap stack)
+            -- updated_heap = hUpdate new_heap (hd $ drop (length arg_names) stack) $ NInd result_addr
             in (new_stack, dump, new_heap, globals, stats)
 
 getargs :: TiHeap -> TiStack -> [Addr]
@@ -155,8 +185,26 @@ instantiate (EAp e1 e2) heap env = hAlloc heap'' (NAp a1 a2)
 instantiate (EVar v) heap env = (heap, aLookup env v $ error ("Undefined name " ++ show v))
 instantiate (EConstr tag arity) heap env = error ""
 instantiate (ELet isrec defs body) heap env = instantiateLet heap env isrec defs body
-instantiate (ECase e alts) heap env = error "Can't instantiate case expressions"
+instantite (ECase e alts) heap env = error "Can't instantiate case expressions"
 
+
+instantiateWithUpdate :: CoreExpr -> Addr -> TiHeap -> ASSOC Name Addr -> TiHeap
+instantiateWithUpdate (ENum n) update_addr heap env = hUpdate heap update_addr (NNum n)
+instantiateWithUpdate (EAp e1 e2) update_addr heap env = hUpdate heap'' update_addr (NAp a1 a2)
+    where
+        (heap', a1) = instantiate e1 heap env
+        (heap'', a2) = instantiate e2 heap' env
+instantiateWithUpdate (EVar v) update_addr heap env 
+    = let addr = aLookup env v $ error ("Undefined name " ++ show v) 
+    in hUpdate heap update_addr $ NInd addr
+
+instantiateWithUpdate (EConstr tag arity) _ heap env = error ""
+instantiateWithUpdate (ELet isrec defs body) update_addr heap env = 
+    let (heap', addr) = instantiateLet heap env isrec defs body
+    in hUpdate heap' update_addr $ NInd addr
+instantiateWithUpdate (ECase e alts) _ heap env = error "Can't instantiate case expressions"
+
+-- Mark 2
 instantiateLet ::TiHeap -> ASSOC Name Addr -> Bool -> [(Name, CoreExpr)] -> CoreExpr -> (TiHeap, Addr)
 instantiateLet heap env False defs expr =  -- let
     instantiate expr heap' env'
@@ -174,7 +222,24 @@ instantiateLet heap env True defs expr =   -- letrec
             in (heap', (name, addr))
         (heap', assoc) = mapAccuml instantiateDefRec heap defs
         env' = assoc ++ env
-        
+
+indStep :: TiState -> Addr -> TiState
+indStep (stack, dump, heap, globals, stats) a1 = (a1 : tl stack, dump, heap, globals, stats)
+
+primStep :: TiState -> Primitive -> TiState
+primStep state Neg = primNeg state
+primStep _ _= error ""
+
+primNeg :: TiState -> TiState
+primNeg (stack, dump, heap, globals, stats) = 
+    (stack', dump', heap', globals, stats)
+    where
+        arg_addr = hd $ getargs heap stack
+        arg = hLookup heap arg_addr
+        (stack', dump', heap') = case arg of
+            NNum n -> (drop 1 stack, dump, hUpdate heap (hd $ drop 1 stack) $ NNum (-n)) -- rule 2.5
+            _ -> ([arg_addr], drop 1 stack : dump, heap)
+
 -- show
 showResults :: [TiState] -> String
 showResults states = iDisplay (iConcat [ iLayn $ showState <$> states, showStats (last states)])
@@ -183,7 +248,7 @@ showState :: TiState -> Iseq
 showState (stack, dump, heap, globals, stats) = iConcat [showStack heap stack, iNewline, showHeap heap, iNewline]
 
 showStack :: TiHeap -> TiStack -> Iseq 
-showStack heap stack = iConcat [iStr "Stk [", iIndent (iInterleave iNewline (map show_stack_item stack)), iStr " ]"]
+showStack heap stack = iConcat [iStr " Stk [", iIndent (iInterleave iNewline (map show_stack_item stack)), iStr " ]"]
                         where 
                         show_stack_item addr = iConcat [showFWAddr addr, iStr ": ", showStkNode heap (hLookup heap addr)]
     
@@ -191,7 +256,7 @@ showHeap :: TiHeap -> Iseq
 showHeap heap = iConcat [
         iStr "Heap [", iIndent (iInterleave iNewline (show_heap_item <$> contentHeap heap)), iStr " ]"]
         where
-            show_heap_item (addr, node) = iConcat $ iStr <$> [ showaddr addr, " " , show node]
+            show_heap_item (addr, node) = iConcat [ showFWAddr addr, iStr ": ", showNode node]
 
 showStkNode :: TiHeap -> Node -> Iseq
 showStkNode heap (NAp fun_addr arg_addr) = iConcat [ iStr "NAp ", showFWAddr fun_addr, iStr " (", showNode (hLookup heap arg_addr), iStr ")"]
@@ -201,6 +266,8 @@ showNode :: Node -> Iseq
 showNode (NAp a1 a2) = iConcat [iStr "NAp ", showAddr a1, iStr " ", showAddr a2]
 showNode (NSupercomb name args body) = iStr ("NSupercomb " ++ name)
 showNode (NNum n) = iStr "NNum " `iAppend` iNum n
+showNode (NInd n) = iStr $ "NInd " ++ show n
+showNode (NPrim name primitive) = iStr $ "NPrim " ++ name 
 
 showAddr :: Addr -> Iseq 
 showAddr addr = iStr (show addr)
@@ -216,7 +283,7 @@ showStats (stack, dump, heap, globals, stats) = iConcat [iNewline, iNewline, iSt
 
 -- data operation functions
 initialTiDump :: TiDump
-initialTiDump = DummyTiDump
+initialTiDump = []
 
 tiStatInitial :: TiStats
 tiStatInitial = 0
