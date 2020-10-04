@@ -39,10 +39,25 @@ complexProgram = "f x y = case x of <1> -> case y of <1> -> 1; <2> -> 2"
 
 program_1 = "h x = case (let y = x in y) of <1> -> 2 ; <2> -> 5"
 
-program_2 = "main = S K K 3"
+program_2 = "main = f 3; f y = S K K y"
 
-program :: [Char]
-program = foldl (\sum str -> sum ++ "\n" ++ str) [] simpleProgram
+program_let = program [
+    "main = let y = 3 in S K K y"
+    ]
+
+program_let_rec = program [
+    "pair y z f = f y z;",
+    "fst p = p K ;",
+    "snd p = p K1 ;",
+    "f y z = letrec ",
+    "a = pair y b;",
+    "b = pair z a",
+    "in fst (snd (snd (snd a)));",
+    "main = f 3 4"
+    ]
+
+program :: [String] -> String
+program = foldl (\sum str -> sum ++ "\n" ++ str) []
 
 main :: IO ()
 main = do 
@@ -53,7 +68,8 @@ main = do
     -- -- can you work out why the parsing cost in the previous example rise so fast
     -- putStrLn $ show $ length $ pOneOrMore (pLit "x") $ (\x -> (1, x)) <$> (take 6 (repeat "x"))
     -- putStrLn $ program
-    putStrLn $ pprint $ parse program_2
+    putStrLn $ pprint $ parse program_let_rec
 
     -- putStrLn $ show $ evalMult (2, 3, 0, 0)
-    -- putStrLn $ runProg program_2 
+    -- putStrLn $ runProg program_let
+    putStrLn $ runProg program_let_rec
