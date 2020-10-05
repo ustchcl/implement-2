@@ -54,4 +54,6 @@ module Language where
 
     
     extraPreludeDefs :: CoreProgram
-    extraPreludeDefs = []
+    extraPreludeDefs = [
+        -- ("if", ["b", "t", "e"], EAp (EConstr ))
+        ]

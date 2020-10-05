@@ -74,6 +74,11 @@ programNeg = program
         "main = x * y"
     ]
 
+programFac = program
+    [ "fac n = if (n == 0) 1 (n * fac (n-1)) ;"
+    , "main = fac 3"
+    ]
+
 program :: [String] -> String
 program = foldl (\sum str -> sum ++ "\n" ++ str) []
 
@@ -90,3 +95,4 @@ main = do
     -- putStrLn $ show $ evalMult (2, 3, 0, 0)
     -- putStrLn $ runProg program_let
     putStrLn $ runProg programNeg
+    -- putStrLn $ pprint $ (parse programFac)

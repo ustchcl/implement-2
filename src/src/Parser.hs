@@ -75,7 +75,7 @@ pLetSub :: Parser (Name, CoreExpr)
 pLetSub = pThen3 mkLetSub pVar (pLit "=") pExpr
 
 mkLet :: Name -> [(Name, CoreExpr)] -> Name -> CoreExpr -> CoreExpr
-mkLet keyword list _ expr = ELet (keyword == "letrec") list expr
+mkLet keyword list _ = ELet (keyword == "letrec") list
 
 pELet :: Parser CoreExpr
 pELet = pThen4 mkLet (pLit "letrec" <~> pLit "let") (pOneOrMoreWithSep pLetSub $ pLit ";") (pLit "in") pExpr

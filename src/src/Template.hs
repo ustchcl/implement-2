@@ -61,14 +61,29 @@ type TiDump = [TiStack]
 
 type TiHeap = Heap Node
 data Node
-    = NAp Addr Addr
-    | NSupercomb Name [Name] CoreExpr
-    | NNum Int
-    | NInd Addr
-    | NPrim Name Primitive
+    = NAp Addr Addr                     -- Application
+    | NSupercomb Name [Name] CoreExpr   -- Defination
+    | NNum Int                          -- Value
+    | NInd Addr                         -- Indirection
+    | NPrim Name Primitive              -- Primitive
+    | NData Int [Addr]                  -- Data Structure
     deriving (Show)
 
-data Primitive = Neg | Add | Sub | Mul | Div deriving (Show)
+data Primitive 
+    = Neg 
+    | Add 
+    | Sub 
+    | Mul 
+    | Div 
+    | PrimConstr Int Int
+    | If
+    | Greater 
+    | GreaterEq 
+    | Less
+    | LessEq
+    | Eq
+    | NotEq
+    deriving (Show)
 
 type TiGlobals = ASSOC Name Addr
 
@@ -108,6 +123,14 @@ primitives =
     , ("-", Sub)
     , ("*", Mul)
     , ("/", Div)
+    -- , ("Pack", PrimConstr)
+    , ("if", If )
+    , (">", Greater)
+    , (">=", GreaterEq)
+    , ("<", Less)
+    , ("<=", LessEq)
+    , ("==", Eq)
+    , ("~=", NotEq)
     ]
 
 allocatePrim :: TiHeap -> (Name, Primitive) -> (TiHeap, (Name, Addr))
@@ -134,6 +157,7 @@ tiFinal _ = False
 
 isDataNode :: Node -> Bool
 isDataNode (NNum _)= True
+isDataNode (NData _ _) = True
 isDataNode _ = False
 
 step :: TiState -> TiState
@@ -145,11 +169,17 @@ dispatch state (NAp a1 a2) = apStep state a1 a2
 dispatch state (NSupercomb sc args body) = scStep state sc args body
 dispatch state (NInd a1) = indStep state a1
 dispatch state (NPrim name prim) = primStep state prim
+dispatch state (NData t addrs) = dataStep state t addrs
 
 numStep :: TiState -> Int -> TiState
 numStep ([_], [], heap, globals, stats) _ = error "cannot apply NNum as NAp"
 numStep ([_], s:d, heap, globals, stats) _ = (s, d, heap, globals, stats)
 numStep state _ =  error $ showResults [state]
+
+dataStep :: TiState -> Int -> [Addr] -> TiState
+dataStep ([_], [], heap, globals, stats) _ _ = error "cannot apply NData as NAp"
+dataStep ([_], s:d, heap, globals, stats) _ _ = (s, d, heap, globals, stats)
+dataStep state _ _ =  error $ showResults [state]
 
 apStep :: TiState -> Addr -> Addr -> TiState 
 apStep (stack, dump, heap, globals, stats) a1 a2 =
@@ -160,7 +190,7 @@ apStep (stack, dump, heap, globals, stats) a1 a2 =
 
 scStep :: TiState -> Name -> [Name] -> CoreExpr -> TiState
 scStep (stack, dump, heap, globals, stats) sc_name arg_names body
-    = if length arg_names >= length stack then error $ sc_name ++ " applied to too few values."
+    = if length arg_names >= length stack then error $ sc_name ++ " applied to too few values." ++ iDisplay (showStack heap stack) ++ iDisplay (showHeap heap)
         else 
             let
             new_stack = drop (length arg_names) stack
@@ -197,8 +227,7 @@ instantiateWithUpdate (EAp e1 e2) update_addr heap env = hUpdate heap'' update_a
 instantiateWithUpdate (EVar v) update_addr heap env 
     = let addr = aLookup env v $ error ("Undefined name " ++ show v) 
     in hUpdate heap update_addr $ NInd addr
-
-instantiateWithUpdate (EConstr tag arity) _ heap env = error ""
+instantiateWithUpdate (EConstr tag arity) addr heap env = instantiateConstr heap tag arity addr
 instantiateWithUpdate (ELet isrec defs body) update_addr heap env = 
     let (heap', addr) = instantiateLet heap env isrec defs body
     in hUpdate heap' update_addr $ NInd addr
@@ -223,6 +252,10 @@ instantiateLet heap env True defs expr =   -- letrec
         (heap', assoc) = mapAccuml instantiateDefRec heap defs
         env' = assoc ++ env
 
+-- Mark 6
+instantiateConstr :: TiHeap -> Int -> Int -> Addr -> TiHeap
+instantiateConstr heap t n addr = hUpdate heap addr (NPrim "Pack" (PrimConstr t n))
+
 indStep :: TiState -> Addr -> TiState
 indStep (stack, dump, heap, globals, stats) a1 = (a1 : tl stack, dump, heap, globals, stats)
 
@@ -232,6 +265,14 @@ primStep state Add = primArith state (+)
 primStep state Sub = primArith state (-)
 primStep state Mul = primArith state (*)
 primStep state Div = primArith state div
+primStep state (PrimConstr t n) = primConstr state t n
+primStep state If = primIf state
+primStep state Greater = primComp state (>)
+primStep state GreaterEq = primComp state (>=)
+primStep state Less = primComp state (<)
+primStep state LessEq = primComp state (<=)
+primStep state Eq = primComp state (==)
+primStep state NotEq = primComp state (/=)
 
 primNeg :: TiState -> TiState
 primNeg (stack, dump, heap, globals, stats) = 
@@ -245,15 +286,49 @@ primNeg (stack, dump, heap, globals, stats) =
 
 
 primArith :: TiState -> (Int -> Int -> Int) -> TiState
-primArith (stack, dump, heap, globals, stats) arith = 
+primArith state arith = primDyadic state fun
+    where
+        fun (NNum n1) (NNum n2) = NNum $ arith n1 n2
+        fun _ _ = error "can't apply arith to sth not a number"
+
+primComp :: TiState -> (Int -> Int -> Bool) -> TiState 
+primComp state f = primDyadic state fun
+    where
+        fun (NNum n1) (NNum n2) = NData (if f n1 n2 then 1 else 2) []
+        fun _ _ = error "can't apply comparison to sth not a number"
+
+primDyadic :: TiState -> (Node -> Node -> Node) -> TiState
+primDyadic (stack, dump, heap, globals, stats) fun = 
     (stack', dump', heap', globals, stats)
     where
         arg_addrs = getargs heap stack
         args = hLookup heap <$> arg_addrs
         (stack', dump', heap') = case args of
-            [NNum n1, NNum n2] -> (drop 2 stack, dump, hUpdate heap (hd $ drop 2 stack) (NNum (arith n1 n2)))
-            [NNum n1, _] -> (tl arg_addrs, drop 2 stack : dump, heap)
+            [node1, node2] | isDataNode node1 && isDataNode node2 -> (drop 2 stack, dump, hUpdate heap (hd $ drop 2 stack) (fun node1 node2))
+            [node1, node2] | isDataNode node1  -> (tl arg_addrs, drop 2 stack : dump, heap)
             _ -> (take 1 arg_addrs, stack : dump, heap)
+
+primConstr :: TiState -> Int ->Int -> TiState
+primConstr (stack, dump, heap, gloabls, stats) t n = 
+    (stack', dump, heap', gloabls, stats)
+    where
+        arg_addrs = getargs heap stack
+        stack' = drop n stack
+        heap' = hUpdate heap (hd stack) $ NData t arg_addrs
+
+primIf :: TiState -> TiState 
+primIf (stack, dump, heap, globals, stats) =
+    (stack', dump', heap', globals, stats)
+    where
+        -- if b t e
+        b:t:e:_ = getargs heap stack
+        node_b = hLookup heap b
+        (stack', dump', heap') = case node_b of
+            NData t addrs -> 
+                let addr = if t == 1 {- 0: false 1: true -}  then t else e
+                in (drop 3 stack, dump, hUpdate heap (stack !! 3) (NInd addr))
+            NNum _ -> error "num is not a boolean value"
+            _ -> ([b], stack:dump, heap)
 
 -- show
 showResults :: [TiState] -> String
@@ -283,6 +358,7 @@ showNode (NSupercomb name args body) = iStr ("NSupercomb " ++ name)
 showNode (NNum n) = iStr "NNum " `iAppend` iNum n
 showNode (NInd n) = iStr $ "NInd " ++ show n
 showNode (NPrim name primitive) = iStr $ "NPrim " ++ name 
+showNode (NData key addrs) = iStr $ "NData " ++ show key
 
 showAddr :: Addr -> Iseq 
 showAddr addr = iStr (show addr)
