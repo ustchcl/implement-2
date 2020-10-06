@@ -294,7 +294,7 @@ primArith state arith = primDyadic state fun
 primComp :: TiState -> (Int -> Int -> Bool) -> TiState 
 primComp state f = primDyadic state fun
     where
-        fun (NNum n1) (NNum n2) = NData (if f n1 n2 then 1 else 2) []
+        fun (NNum n1) (NNum n2) = NData (if f n1 n2 then 2 else 1) []
         fun _ _ = error "can't apply comparison to sth not a number"
 
 primDyadic :: TiState -> (Node -> Node -> Node) -> TiState
@@ -324,8 +324,8 @@ primIf (stack, dump, heap, globals, stats) =
         b:t:e:_ = getargs heap stack
         node_b = hLookup heap b
         (stack', dump', heap') = case node_b of
-            NData t addrs -> 
-                let addr = if t == 1 {- 0: false 1: true -}  then t else e
+            NData unikey addrs -> 
+                let addr = if unikey == 2 {- 1: false 2: true -}  then t else e
                 in (drop 3 stack, dump, hUpdate heap (stack !! 3) (NInd addr))
             NNum _ -> error "num is not a boolean value"
             _ -> ([b], stack:dump, heap)

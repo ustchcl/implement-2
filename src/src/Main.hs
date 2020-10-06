@@ -94,5 +94,6 @@ main = do
 
     -- putStrLn $ show $ evalMult (2, 3, 0, 0)
     -- putStrLn $ runProg program_let
-    putStrLn $ runProg programNeg
-    -- putStrLn $ pprint $ (parse programFac)
+    -- putStrLn $ runProg programNeg
+    putStrLn $ pprint $ (parse programFac)
+    putStrLn $ runProg programFac

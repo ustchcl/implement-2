@@ -56,4 +56,8 @@ module Language where
     extraPreludeDefs :: CoreProgram
     extraPreludeDefs = [
         -- ("if", ["b", "t", "e"], EAp (EConstr ))
+            ("or", ["x", "y"], EAp (EAp  (EAp (EVar "if") (EVar "x")) (EConstr 2 0)) (EVar "y")),
+            ("and", ["x", "y"], EAp (EAp  (EAp (EVar "if") (EVar "x")) (EVar "y")) (EConstr 1 0)), 
+            ("not", ["x"], EAp (EAp (EAp (EVar "if") (EVar "x")) (EConstr 1 0)) (EConstr 2 0)),
+            ("xor", ["x", "y"], EAp (EAp (EAp (EVar "if") (EVar "x")) (EAp (EVar "not") (EVar "y"))) (EVar "y") )
         ]
