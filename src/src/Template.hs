@@ -86,6 +86,8 @@ data Primitive
     | PrimCasePair
     | CaseList
     | Abort
+    -- | Stop
+    -- | Print 
     deriving (Show)
 
 type TiGlobals = ASSOC Name Addr
@@ -137,6 +139,8 @@ primitives =
     , ("casePair", PrimCasePair)
     , ("caseList", CaseList)
     , ("abort", Abort)
+    -- , ("print", Print)
+    -- , ("stop", Stop)
     ]
 
 allocatePrim :: TiHeap -> (Name, Primitive) -> (TiHeap, (Name, Addr))
@@ -283,6 +287,8 @@ primStep state NotEq = primComp state (/=)
 primStep state PrimCasePair = primCasePair state
 primStep state CaseList = primCaseList state
 primStep _ Abort = error "abort"
+-- primStep state Stop = primStop state
+-- primStep state Print = primPrint state
 
 primNeg :: TiState -> TiState
 primNeg (stack, dump, heap, globals, stats) = 
@@ -432,3 +438,6 @@ tiStatGetSteps s = s
 
 applyToStats :: (TiStats -> TiStats) -> TiState -> TiState
 applyToStats f (s, d, h, sd, stats) = (s, d, h, sd, f stats)
+
+
+-- GC
