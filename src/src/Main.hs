@@ -79,6 +79,17 @@ programFac = program
     , "main = fac 3"
     ]
 
+programPair = program
+  [ "main = fst (snd (fst (MkPair (MkPair 1 (MkPair 2 3)) 4)))"
+    -- "main = MkPair 1 2"
+  ]
+
+programList = program
+    [
+        "myList = Cons 1 (Cons 2 (Cons 3 Nil));",
+        "main = tail myList"
+    ]
+
 program :: [String] -> String
 program = foldl (\sum str -> sum ++ "\n" ++ str) []
 
@@ -95,5 +106,8 @@ main = do
     -- putStrLn $ show $ evalMult (2, 3, 0, 0)
     -- putStrLn $ runProg program_let
     -- putStrLn $ runProg programNeg
-    putStrLn $ pprint $ (parse programFac)
-    putStrLn $ runProg programFac
+    -- putStrLn $ pprint $ (parse programFac)
+    -- putStrLn $ runProg programFac
+    -- putStrLn $ pprint $ parse programPair
+    -- putStrLn $ runProg programPair
+    putStrLn $ runProg programList

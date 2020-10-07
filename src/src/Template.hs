@@ -83,6 +83,9 @@ data Primitive
     | LessEq
     | Eq
     | NotEq
+    | PrimCasePair
+    | CaseList
+    | Abort
     deriving (Show)
 
 type TiGlobals = ASSOC Name Addr
@@ -131,6 +134,9 @@ primitives =
     , ("<=", LessEq)
     , ("==", Eq)
     , ("~=", NotEq)
+    , ("casePair", PrimCasePair)
+    , ("caseList", CaseList)
+    , ("abort", Abort)
     ]
 
 allocatePrim :: TiHeap -> (Name, Primitive) -> (TiHeap, (Name, Addr))
@@ -179,6 +185,7 @@ numStep state _ =  error $ showResults [state]
 dataStep :: TiState -> Int -> [Addr] -> TiState
 dataStep ([_], [], heap, globals, stats) _ _ = error "cannot apply NData as NAp"
 dataStep ([_], s:d, heap, globals, stats) _ _ = (s, d, heap, globals, stats)
+-- dataStep (s:stack, dump, heap, gloabls, stats) _ _ = (stack, dump, heap, gloabls, stats)
 dataStep state _ _ =  error $ showResults [state]
 
 apStep :: TiState -> Addr -> Addr -> TiState 
@@ -213,9 +220,9 @@ instantiate (EAp e1 e2) heap env = hAlloc heap'' (NAp a1 a2)
         (heap', a1) = instantiate e1 heap env
         (heap'', a2) = instantiate e2 heap' env
 instantiate (EVar v) heap env = (heap, aLookup env v $ error ("Undefined name " ++ show v))
-instantiate (EConstr tag arity) heap env = error ""
+instantiate (EConstr tag arity) heap env = instantiateConstr heap tag arity
 instantiate (ELet isrec defs body) heap env = instantiateLet heap env isrec defs body
-instantite (ECase e alts) heap env = error "Can't instantiate case expressions"
+instantiate (ECase e alts) heap env = error "Can't instantiate case expressions"
 
 
 instantiateWithUpdate :: CoreExpr -> Addr -> TiHeap -> ASSOC Name Addr -> TiHeap
@@ -227,7 +234,7 @@ instantiateWithUpdate (EAp e1 e2) update_addr heap env = hUpdate heap'' update_a
 instantiateWithUpdate (EVar v) update_addr heap env 
     = let addr = aLookup env v $ error ("Undefined name " ++ show v) 
     in hUpdate heap update_addr $ NInd addr
-instantiateWithUpdate (EConstr tag arity) addr heap env = instantiateConstr heap tag arity addr
+instantiateWithUpdate e@(EConstr tag arity) addr heap env = hUpdate heap addr (NPrim "Pack" $ PrimConstr tag arity)
 instantiateWithUpdate (ELet isrec defs body) update_addr heap env = 
     let (heap', addr) = instantiateLet heap env isrec defs body
     in hUpdate heap' update_addr $ NInd addr
@@ -253,8 +260,8 @@ instantiateLet heap env True defs expr =   -- letrec
         env' = assoc ++ env
 
 -- Mark 6
-instantiateConstr :: TiHeap -> Int -> Int -> Addr -> TiHeap
-instantiateConstr heap t n addr = hUpdate heap addr (NPrim "Pack" (PrimConstr t n))
+instantiateConstr :: TiHeap -> Int -> Int -> (TiHeap, Addr)
+instantiateConstr heap t n = hAlloc heap (NPrim "Pack" (PrimConstr t n))
 
 indStep :: TiState -> Addr -> TiState
 indStep (stack, dump, heap, globals, stats) a1 = (a1 : tl stack, dump, heap, globals, stats)
@@ -273,6 +280,9 @@ primStep state Less = primComp state (<)
 primStep state LessEq = primComp state (<=)
 primStep state Eq = primComp state (==)
 primStep state NotEq = primComp state (/=)
+primStep state PrimCasePair = primCasePair state
+primStep state CaseList = primCaseList state
+primStep _ Abort = error "abort"
 
 primNeg :: TiState -> TiState
 primNeg (stack, dump, heap, globals, stats) = 
@@ -308,13 +318,14 @@ primDyadic (stack, dump, heap, globals, stats) fun =
             [node1, node2] | isDataNode node1  -> (tl arg_addrs, drop 2 stack : dump, heap)
             _ -> (take 1 arg_addrs, stack : dump, heap)
 
-primConstr :: TiState -> Int ->Int -> TiState
-primConstr (stack, dump, heap, gloabls, stats) t n = 
-    (stack', dump, heap', gloabls, stats)
+primConstr :: TiState -> Int -> Int -> TiState
+primConstr (stack, dump, heap, gloabls, stats) t n
+  | length stack <= n = error $ "Pack{ " ++ show t ++ "," ++ show n ++ "} applied too few arguments"
+  | otherwise = (stack', dump, heap', gloabls, stats)
     where
         arg_addrs = getargs heap stack
         stack' = drop n stack
-        heap' = hUpdate heap (hd stack) $ NData t arg_addrs
+        heap' = hUpdate heap (hd stack') $ NData t arg_addrs
 
 primIf :: TiState -> TiState 
 primIf (stack, dump, heap, globals, stats) =
@@ -329,6 +340,40 @@ primIf (stack, dump, heap, globals, stats) =
                 in (drop 3 stack, dump, hUpdate heap (stack !! 3) (NInd addr))
             NNum _ -> error "num is not a boolean value"
             _ -> ([b], stack:dump, heap)
+
+primCasePair :: TiState -> TiState
+primCasePair (stack, dump, heap, globals, stats) = 
+    (stack', dump', heap', globals, stats)
+    where
+        -- casePair pair f 
+        pair:f:_ = getargs heap stack
+        node_pair = hLookup heap pair
+        (stack', dump', heap') = case node_pair of
+            NData unikey [a, b] ->
+                let 
+                    (heap_1, addr_1) = hAlloc heap (NAp f a)
+                    (heap_2, addr_2) = hAlloc heap_1 (NAp addr_1 b)
+                    heap_3 = hUpdate heap_2 (hd stack_1) (NInd addr_2)
+                    stack_1 = drop 2 stack
+                in (stack_1, dump, heap_3) 
+            NNum _ -> error "num is not a pair value"
+            _ -> ([pair], (tl stack):dump, heap)
+
+primCaseList :: TiState -> TiState
+primCaseList (stack, dump, heap, globals, stats) =
+  (stack', dump', heap', globals, stats)
+  where
+    -- caseList Pack{1,0} cn cc
+    p:n:c:_ = getargs heap stack
+    p_node = hLookup heap p
+    (stack', dump', heap') = case p_node of
+      NData _ [] -> (drop 3 stack, dump, hUpdate heap (stack !! 3) (NInd n))
+      NData _ [y,ys] -> 
+        let (heap_1, addr_1) = hAlloc heap $ NAp c y
+            (heap_2, addr_2) = hAlloc heap_1 $ NAp addr_1 ys
+        in (drop 3 stack, dump, hUpdate heap_2 (stack !! 3) (NInd addr_2))
+      NNum _ -> error "num is not a list"
+      _ -> ([p], stack:dump, heap)
 
 -- show
 showResults :: [TiState] -> String
@@ -358,7 +403,7 @@ showNode (NSupercomb name args body) = iStr ("NSupercomb " ++ name)
 showNode (NNum n) = iStr "NNum " `iAppend` iNum n
 showNode (NInd n) = iStr $ "NInd " ++ show n
 showNode (NPrim name primitive) = iStr $ "NPrim " ++ name 
-showNode (NData key addrs) = iStr $ "NData " ++ show key
+showNode (NData key addrs) = iStr $ "NData " ++ show key ++ " " ++ show addrs
 
 showAddr :: Addr -> Iseq 
 showAddr addr = iStr (show addr)

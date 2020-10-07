@@ -50,7 +50,12 @@ module Language where
         ("K1", ["x", "y"], EVar "y"),
         ("S", ["f", "g", "x"], EAp (EAp (EVar "f") (EVar "x"))  (EAp (EVar "g") (EVar "x"))),
         ("compose", ["f", "g", "x"], EAp (EVar "f") (EAp (EVar "g") (EVar "x"))),
-        ("twice", ["f"], EAp (EAp (EVar "compose") (EVar "f")) (EVar "f"))]
+        ("twice", ["f"], EAp (EAp (EVar "compose") (EVar "f")) (EVar "f")),
+        ("Cons", [], EConstr 2 2),
+        ("Nil", [], EConstr 1 0),
+        ("head", ["ys"], EAp (EAp (EAp (EVar "caseList") (EVar "ys")) (EVar "abort")) (EVar "K")),
+        ("tail", ["ys"], EAp (EAp (EAp (EVar "caseList") (EVar "ys")) (EVar "abort")) (EVar "K1"))
+      ]
 
     
     extraPreludeDefs :: CoreProgram
@@ -59,5 +64,8 @@ module Language where
             ("or", ["x", "y"], EAp (EAp  (EAp (EVar "if") (EVar "x")) (EConstr 2 0)) (EVar "y")),
             ("and", ["x", "y"], EAp (EAp  (EAp (EVar "if") (EVar "x")) (EVar "y")) (EConstr 1 0)), 
             ("not", ["x"], EAp (EAp (EAp (EVar "if") (EVar "x")) (EConstr 1 0)) (EConstr 2 0)),
-            ("xor", ["x", "y"], EAp (EAp (EAp (EVar "if") (EVar "x")) (EAp (EVar "not") (EVar "y"))) (EVar "y") )
+            ("xor", ["x", "y"], EAp (EAp (EAp (EVar "if") (EVar "x")) (EAp (EVar "not") (EVar "y"))) (EVar "y") ),
+            ("MkPair", [], EConstr 3 2), -- i am not sure weather 1 is ok here 
+            ("fst", ["p"], EAp (EAp (EVar "casePair") (EVar "p")) (EVar "K")),
+            ("snd", ["p"], EAp (EAp (EVar "casePair") (EVar "p")) (EVar "K1"))
         ]
